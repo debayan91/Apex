@@ -70,15 +70,19 @@ public class TradeOrchestrationService {
                                                 .build();
                         }
 
-                        boolean shouldExecute = strategy.shouldExecute(request.getSymbol(), price, sentiment);
-                        if (!shouldExecute) {
+                        // Create a temporary MarketTick for analysis
+                        com.example.Apex.market.MarketTick currentTick = new com.example.Apex.market.MarketTick(
+                                        request.getSymbol(), price, java.time.LocalDateTime.now());
+
+                        com.example.Apex.strategy.StrategySignal signal = strategy.analyze(currentTick,
+                                        java.util.Collections.emptyList());
+
+                        if (signal.type() != com.example.Apex.strategy.StrategySignal.SignalType.BUY) {
                                 log.info("Strategy decided NOT to execute trade");
                                 return TradeResponse.builder()
                                                 .success(false)
-                                                .message("Strategy decision: SKIP")
-                                                .details(String.format(
-                                                                "Strategy %s decided not to execute based on price=%s and sentiment=%s",
-                                                                strategy.getStrategyName(), price, sentiment))
+                                                .message("Strategy decision: " + signal.type())
+                                                .details(signal.reason())
                                                 .build();
                         }
 
