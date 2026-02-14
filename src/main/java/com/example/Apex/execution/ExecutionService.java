@@ -42,12 +42,12 @@ public class ExecutionService {
             String executionId = brokerClient.executeOrder(order);
 
             // Update order status
-            order.setStatus(Order.OrderStatus.EXECUTED);
-            order.setExecutedAt(LocalDateTime.now());
+            order.setStatus(Order.OrderStatus.FILLED);
+            order.setFilledAt(LocalDateTime.now());
             Order savedOrder = orderRepository.save(order);
 
             // Log execution
-            logTrade(savedOrder.getId(), "ORDER_EXECUTED",
+            logTrade(savedOrder.getId(), "ORDER_FILLED",
                     String.format("Executed via broker. ExecutionId: %s", executionId));
 
             log.info("Order {} executed successfully", savedOrder.getId());
@@ -55,7 +55,7 @@ public class ExecutionService {
 
         } catch (Exception e) {
             // Mark order as failed
-            order.setStatus(Order.OrderStatus.FAILED);
+            order.setStatus(Order.OrderStatus.REJECTED);
             orderRepository.save(order);
 
             logTrade(order.getId(), "ORDER_FAILED", e.getMessage());

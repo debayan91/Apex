@@ -37,6 +37,9 @@ public class Order {
     @Column(precision = 15, scale = 2)
     private BigDecimal price;
 
+    @Column(name = "execution_price", precision = 15, scale = 2)
+    private BigDecimal executionPrice;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Side side;
@@ -45,17 +48,26 @@ public class Order {
     @Column(nullable = false)
     private OrderStatus status;
 
+    @Column(name = "rejection_reason")
+    private String rejectionReason;
+
+    @Column(name = "idempotency_key", unique = true)
+    private String idempotencyKey;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "executed_at")
     private LocalDateTime executedAt;
 
+    @Column(name = "filled_at")
+    private LocalDateTime filledAt;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         if (status == null) {
-            status = OrderStatus.PENDING;
+            status = OrderStatus.PENDING_VALIDATION;
         }
     }
 
@@ -64,6 +76,6 @@ public class Order {
     }
 
     public enum OrderStatus {
-        PENDING, EXECUTED, FAILED, CANCELLED
+        PENDING_VALIDATION, VALIDATED, FILLED, REJECTED, CANCELLED
     }
 }

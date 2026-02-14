@@ -29,96 +29,98 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class TradeOrchestrationService {
 
-    private final BrokerClient brokerClient;
-    private final AIClient aiClient;
-    private final UserService userService;
-    private final RiskGuard riskGuard;
-    private final ExecutionService executionService;
-    private final PortfolioService portfolioService;
-    private final OrderRepository orderRepository;
-    private final Map<String, TradingStrategy> strategies;
+        private final BrokerClient brokerClient;
+        private final AIClient aiClient;
+        private final UserService userService;
+        private final RiskGuard riskGuard;
+        private final ExecutionService executionService;
+        private final PortfolioService portfolioService;
+        private final OrderRepository orderRepository;
+        private final Map<String, TradingStrategy> strategies;
 
-    /**
-     * Execute the complete trading workflow.
-     * Returns a TradeResponse indicating success or failure.
-     */
-    @Transactional
-    public TradeResponse executeTrade(TradeRequest request) {
-        log.info("=== Starting trade execution for user {} ===", request.getUserId());
+        /**
+         * Execute the complete trading workflow.
+         * Returns a TradeResponse indicating success or failure.
+         */
+        @Transactional
+        public TradeResponse executeTrade(TradeRequest request) {
+                log.info("=== Starting trade execution for user {} ===", request.getUserId());
 
-        try {
-            // 1. Fetch user
-            User user = userService.findById(request.getUserId());
+                try {
+                        // 1. Fetch user
+                        User user = userService.findById(request.getUserId());
 
-            // 2. Fetch current price
-            BigDecimal price = brokerClient.getPrice(request.getSymbol());
-            log.info("Fetched price for {}: {}", request.getSymbol(), price);
+                        // 2. Fetch current price
+                        BigDecimal price = brokerClient.getPrice(request.getSymbol());
+                        log.info("Fetched price for {}: {}", request.getSymbol(), price);
 
-            // 3. Get AI sentiment (optional for strategies)
-            AIClient.Sentiment sentiment = aiClient.getSentiment(request.getSymbol());
-            log.info("AI sentiment for {}: {}", request.getSymbol(), sentiment);
+                        // 3. Get AI sentiment (optional for strategies)
+                        AIClient.Sentiment sentiment = aiClient.getSentiment(request.getSymbol());
+                        log.info("AI sentiment for {}: {}", request.getSymbol(), sentiment);
 
-            // 4. Apply trading strategy
-            String strategyName = request.getStrategyType() != null
-                    ? request.getStrategyType()
-                    : "SIMPLE_MOMENTUM";
-            TradingStrategy strategy = strategies.get(strategyName);
-            if (strategy == null) {
-                return TradeResponse.builder()
-                        .success(false)
-                        .message("Unknown strategy: " + strategyName)
-                        .build();
-            }
+                        // 4. Apply trading strategy
+                        String strategyName = request.getStrategyType() != null
+                                        ? request.getStrategyType()
+                                        : "SIMPLE_MOMENTUM";
+                        TradingStrategy strategy = strategies.get(strategyName);
+                        if (strategy == null) {
+                                return TradeResponse.builder()
+                                                .success(false)
+                                                .message("Unknown strategy: " + strategyName)
+                                                .build();
+                        }
 
-            boolean shouldExecute = strategy.shouldExecute(request.getSymbol(), price, sentiment);
-            if (!shouldExecute) {
-                log.info("Strategy decided NOT to execute trade");
-                return TradeResponse.builder()
-                        .success(false)
-                        .message("Strategy decision: SKIP")
-                        .details(String.format("Strategy %s decided not to execute based on price=%s and sentiment=%s",
-                                strategy.getStrategyName(), price, sentiment))
-                        .build();
-            }
+                        boolean shouldExecute = strategy.shouldExecute(request.getSymbol(), price, sentiment);
+                        if (!shouldExecute) {
+                                log.info("Strategy decided NOT to execute trade");
+                                return TradeResponse.builder()
+                                                .success(false)
+                                                .message("Strategy decision: SKIP")
+                                                .details(String.format(
+                                                                "Strategy %s decided not to execute based on price=%s and sentiment=%s",
+                                                                strategy.getStrategyName(), price, sentiment))
+                                                .build();
+                        }
 
-            // 5. Risk validation
-            BigDecimal tradeValue = price.multiply(BigDecimal.valueOf(request.getQuantity()));
-            riskGuard.validateTrade(user, tradeValue, request.getQuantity());
+                        // 5. Risk validation
+                        BigDecimal tradeValue = price.multiply(BigDecimal.valueOf(request.getQuantity()));
+                        riskGuard.validateTrade(user, tradeValue, request.getQuantity());
 
-            // 6. Create pending order
-            Order order = Order.builder()
-                    .userId(user.getId())
-                    .symbol(request.getSymbol())
-                    .quantity(request.getQuantity())
-                    .price(price)
-                    .side(request.getSide())
-                    .status(Order.OrderStatus.PENDING)
-                    .build();
-            Order savedOrder = orderRepository.save(order);
+                        // 6. Create pending order
+                        Order order = Order.builder()
+                                        .userId(user.getId())
+                                        .symbol(request.getSymbol())
+                                        .quantity(request.getQuantity())
+                                        .price(price)
+                                        .side(request.getSide())
+                                        .status(Order.OrderStatus.PENDING_VALIDATION)
+                                        .build();
+                        Order savedOrder = orderRepository.save(order);
 
-            // 7. Execute order via broker
-            Order executedOrder = executionService.executeOrder(savedOrder);
+                        // 7. Execute order via broker
+                        Order executedOrder = executionService.executeOrder(savedOrder);
 
-            // 8. Update portfolio
-            portfolioService.updatePortfolio(executedOrder);
+                        // 8. Update portfolio
+                        portfolioService.updatePortfolio(executedOrder);
 
-            log.info("=== Trade execution completed successfully for order {} ===", executedOrder.getId());
+                        log.info("=== Trade execution completed successfully for order {} ===", executedOrder.getId());
 
-            return TradeResponse.builder()
-                    .success(true)
-                    .orderId(executedOrder.getId())
-                    .executedPrice(price)
-                    .message("Trade executed successfully")
-                    .details(String.format("Executed %s %d shares of %s at %s",
-                            request.getSide(), request.getQuantity(), request.getSymbol(), price))
-                    .build();
+                        return TradeResponse.builder()
+                                        .success(true)
+                                        .orderId(executedOrder.getId())
+                                        .executedPrice(price)
+                                        .message("Trade executed successfully")
+                                        .details(String.format("Executed %s %d shares of %s at %s",
+                                                        request.getSide(), request.getQuantity(), request.getSymbol(),
+                                                        price))
+                                        .build();
 
-        } catch (Exception e) {
-            log.error("Trade execution failed: {}", e.getMessage(), e);
-            return TradeResponse.builder()
-                    .success(false)
-                    .message(e.getMessage())
-                    .build();
+                } catch (Exception e) {
+                        log.error("Trade execution failed: {}", e.getMessage(), e);
+                        return TradeResponse.builder()
+                                        .success(false)
+                                        .message(e.getMessage())
+                                        .build();
+                }
         }
-    }
 }
