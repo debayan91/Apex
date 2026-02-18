@@ -1,4 +1,4 @@
-# APEX: High-Frequency Algorithmic Trading Engine
+# APEX: Algorithmic Trading Engine
 
 **APEX** is an institutional-grade financial operating system designed for low-latency algorithmic trading. It simulates a high-frequency trading environment with real-time market data ingestion, strict ACID-compliant capital management, and a deterministic execution engine.
 
