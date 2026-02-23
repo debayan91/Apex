@@ -39,13 +39,7 @@ public class StrategyController {
             return ResponseEntity.notFound().build();
         }
 
-        // Fetch recent history for analysis (e.g., last 50 ticks)
-        // In a real system, this should be optimized.
-        // We need 'currentTick' + 'history'.
-        // Let's assume the latest tick in DB is 'current'.
-
         List<MarketTick> history = marketTickRepository.findAll(); // Simplified for MVP: fetch all.
-        // In production, use Pageable to get last N.
 
         if (history.isEmpty()) {
             return ResponseEntity.badRequest().body("No market data available");

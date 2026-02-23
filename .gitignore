@@ -31,3 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Personal / Internal docs
+productionreq.md
+docs/personal/
+*.todo
