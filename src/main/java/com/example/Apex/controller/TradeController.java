@@ -1,16 +1,18 @@
 package com.example.Apex.controller;
 
 import com.example.Apex.model.Order;
-import com.example.Apex.model.dto.TradeRequest;
-import com.example.Apex.model.dto.TradeResponse;
 import com.example.Apex.repo.OrderRepository;
 import com.example.Apex.service.TradeOrchestrationService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -51,5 +53,16 @@ public class TradeController {
         log.info("Fetching order history for user {}", userId);
         List<Order> orders = orderRepository.findByUserId(userId);
         return ResponseEntity.ok(orders);
+    }
+
+    public record TradeRequest(
+            @NotNull(message = "User ID is required") Long userId,
+            @NotBlank(message = "Symbol is required") String symbol,
+            @NotNull(message = "Quantity is required") @Min(value = 1, message = "Quantity must be at least 1") Integer quantity,
+            @NotNull(message = "Side is required") Order.Side side,
+            String strategyType) {
+    }
+
+    public record TradeResponse(boolean success, Long orderId, String message, BigDecimal executedPrice, String details) {
     }
 }

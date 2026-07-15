@@ -1,10 +1,10 @@
 package com.example.Apex.portfolio;
 
 import com.example.Apex.client.BrokerClient;
+import com.example.Apex.controller.PortfolioController;
 import com.example.Apex.model.Holding;
 import com.example.Apex.model.Order;
 import com.example.Apex.model.User;
-import com.example.Apex.model.dto.PortfolioSummary;
 import com.example.Apex.repo.HoldingRepository;
 import com.example.Apex.repo.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -104,7 +104,7 @@ public class PortfolioService {
     /**
      * Get complete portfolio summary for a user.
      */
-    public PortfolioSummary getPortfolioSummary(Long userId) {
+    public PortfolioController.PortfolioSummary getPortfolioSummary(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userId));
 
@@ -120,11 +120,6 @@ public class PortfolioService {
 
         BigDecimal totalValue = user.getBalance().add(holdingsValue);
 
-        return PortfolioSummary.builder()
-                .userId(userId)
-                .cashBalance(user.getBalance())
-                .totalValue(totalValue)
-                .holdings(holdings)
-                .build();
+        return new PortfolioController.PortfolioSummary(userId, user.getBalance(), totalValue, holdings);
     }
 }

@@ -1,5 +1,6 @@
 package com.example.Apex.market;
 
+import org.springframework.kafka.core.KafkaTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +21,7 @@ import java.time.Duration;
  *
  * Connects to the Binance public trade stream for BTCUSDT, parses each trade
  * event,
- * and delegates persistence to {@link MarketTickPersistenceHandler}.
+ * and publishes it to the market-ticks Kafka topic.
  *
  * Features:
  * - Fully asynchronous and non-blocking (Reactor Netty)
@@ -38,7 +39,7 @@ public class BinanceWebSocketClient implements ApplicationListener<ApplicationRe
     private static final Duration INITIAL_BACKOFF = Duration.ofSeconds(2);
     private static final Duration MAX_BACKOFF = Duration.ofSeconds(60);
 
-    private final MarketTickPersistenceHandler persistenceHandler;
+    private final KafkaTemplate<String, BinanceTradeEvent> kafkaTemplate;
     private final ObjectMapper objectMapper;
 
     @Value("${apex.websocket.enabled:true}")
@@ -93,7 +94,7 @@ public class BinanceWebSocketClient implements ApplicationListener<ApplicationRe
         return Mono.fromRunnable(() -> {
             try {
                 BinanceTradeEvent event = objectMapper.readValue(rawJson, BinanceTradeEvent.class);
-                persistenceHandler.persist(event);
+                kafkaTemplate.send("market-ticks", event.getSymbol(), event);
             } catch (Exception e) {
                 log.error("[ERROR] Failed to parse trade event: {}. Raw: {}", e.getMessage(), rawJson);
             }

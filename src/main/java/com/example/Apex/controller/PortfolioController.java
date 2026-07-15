@@ -1,6 +1,6 @@
 package com.example.Apex.controller;
 
-import com.example.Apex.model.dto.PortfolioSummary;
+import com.example.Apex.model.Holding;
 import com.example.Apex.portfolio.PortfolioService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +9,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * REST controller for portfolio operations.
@@ -31,5 +34,8 @@ public class PortfolioController {
         log.info("Fetching portfolio for user {}", userId);
         PortfolioSummary summary = portfolioService.getPortfolioSummary(userId);
         return ResponseEntity.ok(summary);
+    }
+
+    public record PortfolioSummary(Long userId, BigDecimal cashBalance, BigDecimal totalValue, List<Holding> holdings) {
     }
 }

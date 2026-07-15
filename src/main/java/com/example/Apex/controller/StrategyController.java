@@ -3,7 +3,6 @@ package com.example.Apex.controller;
 import com.example.Apex.market.MarketDataService;
 import com.example.Apex.market.MarketTick;
 import com.example.Apex.market.MarketTickRepository;
-import com.example.Apex.model.dto.BacktestRequest;
 import com.example.Apex.service.BacktestService;
 import com.example.Apex.strategy.StrategyRegistry;
 import com.example.Apex.strategy.StrategySignal;
@@ -13,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -55,12 +53,15 @@ public class StrategyController {
     public ResponseEntity<?> runBacktest(@RequestBody BacktestRequest request) {
         try {
             BacktestService.BacktestResult result = backtestService.runBacktest(
-                    request.getStrategyName(),
-                    request.getStart(),
-                    request.getEnd());
+                    request.strategyName(),
+                    request.start(),
+                    request.end());
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
+    }
+
+    public record BacktestRequest(String strategyName, LocalDateTime start, LocalDateTime end) {
     }
 }

@@ -2,13 +2,19 @@ package com.example.Apex.controller;
 
 import com.example.Apex.model.User;
 import com.example.Apex.service.UserService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.util.Map;
+
+import com.example.Apex.service.WalletService;
+import com.example.Apex.model.TransactionType;
+import com.example.Apex.model.Wallet;
+import com.example.Apex.repo.WalletRepository;
 
 /**
  * REST controller for user operations.
@@ -21,6 +27,8 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
+    private final WalletService walletService;
+    private final WalletRepository walletRepository;
 
     /**
      * Create a new user.
@@ -29,14 +37,10 @@ public class UserController {
      * "10000.00" }
      */
     @PostMapping("/create")
-    public ResponseEntity<User> createUser(@RequestBody Map<String, String> request) {
+    public ResponseEntity<User> createUser(@Valid @RequestBody CreateUserRequest request) {
         log.info("Creating user: {}", request);
 
-        String username = request.get("username");
-        String email = request.get("email");
-        BigDecimal initialBalance = new BigDecimal(request.getOrDefault("initialBalance", "10000.00"));
-
-        User user = userService.createUser(username, email, initialBalance);
+        User user = userService.createUser(request.username(), request.email(), request.initialBalance());
         return ResponseEntity.ok(user);
     }
 
@@ -49,5 +53,32 @@ public class UserController {
         log.info("Fetching user {}", id);
         User user = userService.findById(id);
         return ResponseEntity.ok(user);
+    }
+
+    @PostMapping("/{id}/deposit")
+    public ResponseEntity<Void> deposit(@PathVariable Long id, @RequestBody DepositRequest request) {
+        log.info("Depositing {} to user {}", request.amount(), id);
+        walletService.adjustBalance(id, request.amount(), TransactionType.DEPOSIT);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/{id}/wallet")
+    public ResponseEntity<Wallet> getWallet(@PathVariable Long id) {
+        Wallet wallet = walletRepository.findWalletByUserId(id).orElseThrow();
+        return ResponseEntity.ok(wallet);
+    }
+
+    public record DepositRequest(BigDecimal amount) {
+    }
+
+    public record CreateUserRequest(
+            @NotBlank(message = "Username is required") String username,
+            @NotBlank(message = "Email is required") String email,
+            BigDecimal initialBalance) {
+        public CreateUserRequest {
+            if (initialBalance == null) {
+                initialBalance = new BigDecimal("10000.00");
+            }
+        }
     }
 }

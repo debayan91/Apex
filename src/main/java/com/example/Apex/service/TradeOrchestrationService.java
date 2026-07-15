@@ -2,11 +2,10 @@ package com.example.Apex.service;
 
 import com.example.Apex.client.AIClient;
 import com.example.Apex.client.BrokerClient;
+import com.example.Apex.controller.TradeController;
 import com.example.Apex.execution.ExecutionService;
 import com.example.Apex.model.Order;
 import com.example.Apex.model.User;
-import com.example.Apex.model.dto.TradeRequest;
-import com.example.Apex.model.dto.TradeResponse;
 import com.example.Apex.portfolio.PortfolioService;
 import com.example.Apex.repo.OrderRepository;
 import com.example.Apex.risk.RiskGuard;
@@ -43,60 +42,53 @@ public class TradeOrchestrationService {
          * Returns a TradeResponse indicating success or failure.
          */
         @Transactional
-        public TradeResponse executeTrade(TradeRequest request) {
-                log.info("=== Starting trade execution for user {} ===", request.getUserId());
+        public TradeController.TradeResponse executeTrade(TradeController.TradeRequest request) {
+                log.info("=== Starting trade execution for user {} ===", request.userId());
 
                 try {
                         // 1. Fetch user
-                        User user = userService.findById(request.getUserId());
+                        User user = userService.findById(request.userId());
 
                         // 2. Fetch current price
-                        BigDecimal price = brokerClient.getPrice(request.getSymbol());
-                        log.info("Fetched price for {}: {}", request.getSymbol(), price);
+                        BigDecimal price = brokerClient.getPrice(request.symbol());
+                        log.info("Fetched price for {}: {}", request.symbol(), price);
 
                         // 3. Get AI sentiment (optional for strategies)
-                        AIClient.Sentiment sentiment = aiClient.getSentiment(request.getSymbol());
-                        log.info("AI sentiment for {}: {}", request.getSymbol(), sentiment);
+                        AIClient.Sentiment sentiment = aiClient.getSentiment(request.symbol());
+                        log.info("AI sentiment for {}: {}", request.symbol(), sentiment);
 
                         // 4. Apply trading strategy
-                        String strategyName = request.getStrategyType() != null
-                                        ? request.getStrategyType()
+                        String strategyName = request.strategyType() != null
+                                        ? request.strategyType()
                                         : "SIMPLE_MOMENTUM";
                         TradingStrategy strategy = strategies.get(strategyName);
                         if (strategy == null) {
-                                return TradeResponse.builder()
-                                                .success(false)
-                                                .message("Unknown strategy: " + strategyName)
-                                                .build();
+                                return new TradeController.TradeResponse(false, null, "Unknown strategy: " + strategyName, null, null);
                         }
 
                         // Create a temporary MarketTick for analysis
                         com.example.Apex.market.MarketTick currentTick = new com.example.Apex.market.MarketTick(
-                                        request.getSymbol(), price, java.time.LocalDateTime.now());
+                                        request.symbol(), price, java.time.LocalDateTime.now());
 
                         com.example.Apex.strategy.StrategySignal signal = strategy.analyze(currentTick,
                                         java.util.Collections.emptyList());
 
                         if (signal.type() != com.example.Apex.strategy.StrategySignal.SignalType.BUY) {
                                 log.info("Strategy decided NOT to execute trade");
-                                return TradeResponse.builder()
-                                                .success(false)
-                                                .message("Strategy decision: " + signal.type())
-                                                .details(signal.reason())
-                                                .build();
+                                return new TradeController.TradeResponse(false, null, "Strategy decision: " + signal.type(), null, signal.reason());
                         }
 
                         // 5. Risk validation
-                        BigDecimal tradeValue = price.multiply(BigDecimal.valueOf(request.getQuantity()));
-                        riskGuard.validateTrade(user, tradeValue, request.getQuantity());
+                        BigDecimal tradeValue = price.multiply(BigDecimal.valueOf(request.quantity()));
+                        riskGuard.validateTrade(user, tradeValue, request.quantity());
 
                         // 6. Create pending order
                         Order order = Order.builder()
                                         .userId(user.getId())
-                                        .symbol(request.getSymbol())
-                                        .quantity(request.getQuantity())
+                                        .symbol(request.symbol())
+                                        .quantity(request.quantity())
                                         .price(price)
-                                        .side(request.getSide())
+                                        .side(request.side())
                                         .status(Order.OrderStatus.PENDING_VALIDATION)
                                         .build();
                         Order savedOrder = orderRepository.save(order);
@@ -109,22 +101,17 @@ public class TradeOrchestrationService {
 
                         log.info("=== Trade execution completed successfully for order {} ===", executedOrder.getId());
 
-                        return TradeResponse.builder()
-                                        .success(true)
-                                        .orderId(executedOrder.getId())
-                                        .executedPrice(price)
-                                        .message("Trade executed successfully")
-                                        .details(String.format("Executed %s %d shares of %s at %s",
-                                                        request.getSide(), request.getQuantity(), request.getSymbol(),
-                                                        price))
-                                        .build();
+                        return new TradeController.TradeResponse(
+                                        true,
+                                        executedOrder.getId(),
+                                        "Trade executed successfully",
+                                        price,
+                                        String.format("Executed %s %d shares of %s at %s",
+                                                        request.side(), request.quantity(), request.symbol(), price));
 
                 } catch (Exception e) {
                         log.error("Trade execution failed: {}", e.getMessage(), e);
-                        return TradeResponse.builder()
-                                        .success(false)
-                                        .message(e.getMessage())
-                                        .build();
+                        return new TradeController.TradeResponse(false, null, e.getMessage(), null, null);
                 }
         }
 }

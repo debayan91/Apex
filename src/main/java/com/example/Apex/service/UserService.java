@@ -7,6 +7,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.Apex.repo.WalletRepository;
+import com.example.Apex.model.Wallet;
+
 import java.math.BigDecimal;
 
 /**
@@ -18,6 +21,7 @@ import java.math.BigDecimal;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final WalletRepository walletRepository;
 
     /**
      * Create a new user with initial balance.
@@ -33,6 +37,7 @@ public class UserService {
                 .build();
 
         User savedUser = userRepository.save(user);
+        walletRepository.save(new Wallet(savedUser.getId(), initialBalance));
         log.info("User created: id={}", savedUser.getId());
         return savedUser;
     }
