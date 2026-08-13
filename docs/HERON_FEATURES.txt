@@ -1,0 +1,223 @@
+================================================================================
+                       HERON ALGORITHMIC TRADING ENGINE
+                 COMPREHENSIVE FEATURE LIST (FR & NFR)
+================================================================================
+
+PROJECT OVERVIEW:
+-----------------
+HERON is an institutional-grade financial operating system designed for low-latency
+algorithmic crypto trading. It simulates a high-frequency trading environment with
+real-time market data ingestion, strict ACID-compliant capital management, deterministic
+order execution, risk management, pluggable quantitative strategies, and a modern
+React-based trading dashboard.
+
+
+================================================================================
+1. FUNCTIONAL REQUIREMENTS (FR) - CURRENTLY IMPLEMENTED FEATURES
+================================================================================
+
+1.1 REAL-TIME MARKET DATA PLANE
+--------------------------------
+- Live Binance Market Data Ingestion:
+  * Persistent WebSocket stream connection to Binance Public API (e.g., BTCUSDT).
+  * Real-time trade tick parsing from JSON WebSocket frames (BinanceTradeEvent DTO).
+  * Automatic WebSocket reconnect handling on network disconnects or timeouts.
+- High-Frequency Tick Persistence:
+  * Non-blocking persistence handler (`MarketTickPersistenceHandler`) saving live 
+    tick data to PostgreSQL (`MarketTick` entity).
+  * Historical market tick retrieval for technical analysis and backtesting.
+- Latest Price Query Service:
+  * `MarketDataService` to query real-time execution prices required for risk 
+    validation and order execution.
+
+1.2 CAPITAL MANAGEMENT & WALLET ENGINE
+---------------------------------------
+- Immutable Transaction Ledger:
+  * Full double-entry transaction record system (`TransactionLedger`).
+  * All monetary movements (DEPOSIT, WITHDRAWAL, TRADE_BUY, TRADE_SELL) recorded 
+    as immutable ledger rows; balances are computed/verified auditably.
+- Multi-Asset Holdings Management:
+  * Tracking of user currency cash balances (`Wallet`) and asset holdings (`Holding`).
+  * Real-time valuation of total portfolio value (Cash + Holdings * Live Market Price).
+- Transaction Categorization:
+  * Explicit enum-based transaction tracking (`TransactionType`) covering deposits, 
+    withdrawals, buy orders, and sell orders.
+
+1.3 DETERMINISTIC ORDER EXECUTION ENGINE
+-----------------------------------------
+- Uni-Directional Order State Machine:
+  * Strict lifecycle enforcement: CREATED -> VALIDATED -> FILLED (or REJECTED).
+  * Invalid state transitions rejected automatically with explicit exceptions 
+    (`InvalidOrderStateTransitionException`).
+- Idempotent Order Placement:
+  * REST API requires an `Idempotency-Key` header (UUID).
+  * Prevents accidental double order submission during network retries or client errors.
+- Support for Multiple Order Types & Sides:
+  * Order Sides: BUY and SELL.
+  * Order Types: Market Orders (executed at current tick price) and Limit Orders 
+    (executed at specified price limit).
+- Complete Audit Logging:
+  * Detailed audit trail (`OrderAuditLog`) capturing every state transition with 
+    nanosecond/millisecond timestamps for regulatory compliance and debugging.
+
+1.4 PRE-TRADE RISK MANAGEMENT & SAFEGUARDS
+-------------------------------------------
+- Centralized Risk Guard (`RiskGuard` & `RiskManagementService`):
+  * Intercepts and validates all incoming trade orders prior to execution routing.
+- Pre-Trade Capital Validation:
+  * Verifies user has sufficient available cash balance (BUY) or asset quantity (SELL) 
+    before approving an order.
+- Fat-Finger / Notional Order Limits:
+  * Automatically blocks and rejects orders exceeding set monetary threshold limits 
+    (e.g., maximum notional limit of $5,000 per order).
+- Wash Trade Prevention:
+  * Prevents self-matching orders where a user could trade against their own orders.
+
+1.5 QUANTITATIVE STRATEGY INTELLIGENCE & BACKTESTING
+------------------------------------------------------
+- Strategy Pattern & Auto-Discovery:
+  * Extensible `TradingStrategy` interface following the Open/Closed Principle.
+  * `StrategyRegistry` automatically auto-discovers and registers strategy Spring 
+    beans dynamically at startup.
+- Signal Generation Engine:
+  * Real-time signal evaluation (`StrategySignal` returning BUY, SELL, or HOLD recommendations).
+  * Built-in Quantitative Strategies:
+    1. `SimpleMovingAverageStrategy` (SMA trend crossover).
+    2. `SimpleMomentumStrategy` (Momentum indicator).
+    3. `ConservativeStrategy` (Low-volatility risk-averse strategy).
+- Historical Backtesting Engine:
+  * Backtesting service (`BacktestService`) replaying stored `MarketTick` historical 
+    data against active algorithms.
+  * Computes simulated trade outcomes, total ROI, and trade fill counts over specified 
+    time ranges (`start` and `end` timestamps).
+
+1.6 MOCK INFRASTRUCTURE & EXTERNAL INTEGRATION
+-----------------------------------------------
+- Mock Broker Integration (`MockBrokerClient`):
+  * Simulates exchange matching engine behavior, order fills, and trade settlements.
+- Mock AI Intelligence Integration (`MockAIClient`):
+  * Simulates AI-driven market sentiment analysis and predictive trading signals.
+
+1.7 FRONTEND TRADING DASHBOARD (React + TypeScript + Vite + Tailwind CSS)
+-------------------------------------------------------------------------
+- Top Navigation & Market Ticker Bar:
+  * Live symbol status header display (BTC/USDT).
+  * Real-time flashing price tick indicator (green/red flash on price changes).
+- Interactive Main Chart Component:
+  * Candlestick & price visualization with live updates.
+  * Visual Trade Markers placed directly on chart upon order execution (BUY/SELL labels).
+- Market Watchlist Sidebar:
+  * Quick-select list of crypto trading pairs with price tracking.
+- Interactive Order Execution Panel:
+  * BUY / SELL tab switches.
+  * Market vs Limit order input forms.
+  * Real-time order status notifications (Success/Failure feedback alerts).
+- Portfolio & Holdings Panel:
+  * Real-time cash balance display.
+  * Current asset holdings table with quantity, average buy price, and live P&L calculations.
+
+1.8 REST API ENDPOINTS
+----------------------
+- Order Controller (`/api/orders`):
+  * `POST /api/orders` - Submit new order (requires `Idempotency-Key`).
+- Strategy Controller (`/api/strategies`):
+  * `POST /api/strategies/{strategyName}/signal` - Fetch current strategy signal.
+  * `POST /api/strategies/backtest` - Execute historical backtest over date range.
+- Portfolio Controller (`/portfolio`):
+  * `GET /portfolio/{userId}` - Retrieve cash balance, holdings, and portfolio total value.
+- User Controller (`/users`):
+  * CRUD endpoints for managing user profiles and accounts.
+- Trade Controller (`/api/trades`):
+  * Manual trade orchestration triggering.
+
+
+================================================================================
+2. FUNCTIONAL REQUIREMENTS (FR) - PRODUCTION ROADMAP & FUTURE FEATURES
+================================================================================
+
+2.1 PHASE 1: SECURITY & IDENTITY
+- Authentication System: Spring Security + JWT token-based auth for login/signup.
+- Multi-Factor Authentication (MFA): App/SMS verification for account login & fund withdrawals.
+- Role-Based Access Control (RBAC): Fine-grained user vs. administrative permission levels.
+- Field-Level Database Encryption: HTTPS/TLS communication and encrypted DB fields (e.g. API keys).
+
+2.2 PHASE 2: ADVANCED CONSUMER EXPERIENCE
+- Mobile-Responsive Layout: Optimized smartphone layout for the web dashboard.
+- Advanced Analytics Suite: Visual charts for ROI, Win/Loss ratio, Sharpe ratio, and Max Drawdown.
+- One-Click Strategy Execution: Simplified start/stop toggle controls for automated strategies.
+
+2.3 PHASE 3: LIVE TRADING INFRASTRUCTURE
+- Production Broker Integration: Direct APIs for real capital execution (Alpaca, Interactive Brokers).
+- Live AI Engine: Integration with production LLMs / quantitative sentiment services.
+- Partial Fill & Order Cancellation Management: Support for partial order executions and manual order cancellations.
+
+2.4 PHASE 4: RISK & SAFETY ROADMAP
+- Sandbox / Paper Trading Mode: Simulated trading environment with virtual funds for testing.
+- System-Wide Circuit Breakers: Automatic global stop-loss limits to prevent catastrophic losses.
+- Activity Audit Trail: Clear, human-readable logging of all AI-initiated trading decisions.
+
+2.5 PHASE 5: OPERATIONS & COMPLIANCE
+- Flyway/Liquibase Migrations: Versioned database schema migrations replacing automatic update modes.
+- Actuator & Prometheus/Grafana Monitoring: Health check metrics, latency tracking, and operational alerting.
+- KYC Onboarding: Automated identity verification workflow for regulatory compliance.
+
+
+================================================================================
+3. NON-FUNCTIONAL REQUIREMENTS (NFR)
+================================================================================
+
+3.1 PERFORMANCE & LOW LATENCY
+- Modular Monolith Architecture:
+  * Eliminates inter-service network latency and serialization overhead between 
+    Execution, Risk, Capital, and Strategy engines.
+- High-Frequency Data Processing:
+  * Non-blocking WebSocket ingestion stream handling rapid Binance tick feeds.
+- Efficient Persistence Pipeline:
+  * Asynchronous tick persistence preventing DB I/O from blocking real-time tick calculations.
+
+3.2 CAPITAL INTEGRITY & ACID COMPLIANCE
+- Pessimistic Concurrency Locking:
+  * Uses database `SELECT ... FOR UPDATE` (Pessimistic Write Lock) on `Wallet` records 
+    during order execution.
+  * Strictly serializes balance operations, preventing race conditions, overdrawing, 
+    and double-spend vulnerabilities under high concurrent load.
+- Financial Auditability & Immutability:
+  * Transaction balances are derived from an append-only ledger (`TransactionLedger`), 
+    ensuring zero data tampering or loss of accounting history.
+
+3.3 CONCURRENCY, SCALABILITY & RELIABILITY
+- Idempotency Guarantee:
+  * Unique idempotency keys ensure API retry safety under network partition failures.
+- Robust Exception Handling & Error Propagation:
+  * Global exception interceptor (`GlobalExceptionHandler`) maps application exceptions 
+    (`InsufficientBalanceException`, `RiskViolationException`, `InvalidOrderStateTransitionException`) 
+    into clean, standardized HTTP 4xx/5xx REST error payloads.
+- Automatic Reconnection & Resilience:
+  * WebSocket streams implement automatic reconnect protocols on socket failures or timeouts.
+
+3.4 ARCHITECTURE, EXTENSIBILITY & MAINTAINABILITY
+- Open/Closed Strategy Architecture:
+  * Core engine can be extended with new trading algorithms via standard Java interfaces 
+    without modifying core execution logic.
+- Automated Strategy Registration:
+  * Dynamic bean injection powered by Spring ApplicationContext (`StrategyRegistry`).
+- Clean Separation of Planes:
+  * Strict separation between Market Data Plane, Capital Plane, Execution Plane, 
+    and Intelligence Plane.
+
+3.5 DEPLOYMENT, CONTAINERIZATION & PORTABILITY
+- Cross-Platform Multi-Stage Docker Builds:
+  * Multi-architecture Dockerfile supporting both Apple Silicon (ARM64) and x86_64 (AMD64).
+  * Lightweight Alpine JRE runtime deployment image.
+- Orchestrated Multi-Container Environment (`docker-compose.yml`):
+  * Single-command orchestration for PostgreSQL 16 database, backend application, and frontend container.
+- Concurrent Local Development Script (`start.py`):
+  * Cross-platform Python runner script executing Spring Boot backend and Vite frontend 
+    simultaneously with live unified logging and clean graceful single Ctrl+C shutdown.
+
+3.6 TECHNOLOGY STACK & STANDARDS
+- Backend Framework: Java 17 LTS, Spring Boot 3.2.2, Spring Data JPA, WebFlux (WebSocket).
+- Database & Persistence: PostgreSQL 16 relational database with ACID guarantees.
+- Frontend Stack: React 18, TypeScript, Vite, Tailwind CSS, Lucide icons.
+- Build Tools & Wrappers: Maven (`mvnw`), npm.
+================================================================================

@@ -1,10 +1,10 @@
-# APEX: Algorithmic Trading Engine
+# HERON: Algorithmic Trading Engine
 
-**APEX** is an institutional-grade financial operating system designed for low-latency algorithmic trading. It simulates a high-frequency trading environment with real-time market data ingestion, strict ACID-compliant capital management, and a deterministic execution engine.
+**HERON** is an institutional-grade financial operating system designed for low-latency algorithmic trading. It simulates a high-frequency trading environment with real-time market data ingestion, strict ACID-compliant capital management, and a deterministic execution engine.
 
 ## System Architecture
 
-APEX adopts a **Modular Monolithic** architecture to minimize network latency—a critical factor in high-frequency trading. The system is divided into four distinct planes:
+HERON adopts a **Modular Monolithic** architecture to minimize network latency—a critical factor in high-frequency trading. The system is divided into four distinct planes:
 
 1.  **Market Data Plane**: Ingests real-time price feeds via the Binance Public API.
 2.  **Capital Plane**: Manages user funds using an immutable ledger and pessimistic locking.
@@ -82,21 +82,28 @@ graph TD
 
 
 
-## Getting Started
+### Running the Platform
 
-### Prerequisites
+You can run both the Backend (Spring Boot) and Frontend (Vite + React + TS) together in one of two ways:
 
-* Docker Desktop (or Docker Engine + Compose)
-* Java 17 SDK (Optional, for local development)
+#### Option 1: Python Runner Script (Local Development)
+Runs both backend (`backend/mvnw spring-boot:run`) and frontend (`frontend/npm run dev`) concurrently with live unified logging and single Ctrl+C shutdown:
 
-### Installation
-
-1. **Clone the Repository**
 ```bash
-git clone [https://github.com/debayan91/Apex.git](https://github.com/debayan91/Apex.git)
-cd Apex
-
+python3 start.py
 ```
+
+#### Option 2: Docker Compose (All Containers)
+Spins up PostgreSQL, Kafka, Backend, and Frontend containers simultaneously:
+
+```bash
+docker compose up
+```
+
+Once running:
+- **Frontend Dashboard**: `http://localhost:5173`
+- **Backend API**: `http://localhost:8081`
+
 
 
 2. **Launch Infrastructure**
@@ -165,7 +172,16 @@ Financial accuracy is prioritized over eventual consistency. The system employs 
 
 
 
+## Documentation
+
+For further detailed documentation, refer to the [`docs/`](docs/) directory:
+
+- [Project Structure & File Map](docs/project_structure.md)
+- [Comprehensive Feature List](docs/HERON_FEATURES.txt)
+- [Production Readiness Roadmap](docs/productionreq.md)
+
 ## License
 
 This project is licensed under the MIT License.
+
 
