@@ -11,7 +11,10 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
+
+import io.heron.strategy.TradingStrategy;
 
 /**
  * Orchestrates order execution.
@@ -29,8 +32,9 @@ public class OrderExecutionService {
     private final MarketDataService marketDataService;
     private final OrderStateMachine orderStateMachine;
     private final HoldingRepository holdingRepository;
+    private final Map<String, TradingStrategy> strategies;
 
-    public Order executeOrder(Long userId, String symbol, Order.Side side, Integer quantity, String idempotencyKey) {
+    public Order executeOrder(Long userId, String symbol, Order.Side side, Integer quantity, String idempotencyKey, String strategyType) {
 
         // 1. Idempotency Check
         Optional<Order> existingOrder = orderRepository.findByIdempotencyKey(idempotencyKey);
@@ -54,6 +58,22 @@ public class OrderExecutionService {
             // 3. Fetch live market price
             BigDecimal marketPrice = marketDataService.getLatestPrice(symbol);
             order.setPrice(marketPrice);
+
+            // 3.5 Strategy evaluation
+            if (strategyType != null && !strategyType.trim().isEmpty()) {
+                TradingStrategy strategy = strategies.get(strategyType);
+                if (strategy == null) {
+                    throw new IllegalArgumentException("Unknown strategy: " + strategyType);
+                }
+                io.heron.market.MarketTick currentTick = new io.heron.market.MarketTick(symbol, marketPrice, LocalDateTime.now());
+                io.heron.strategy.StrategySignal signal = strategy.analyze(currentTick, java.util.Collections.emptyList());
+                io.heron.strategy.StrategySignal.SignalType expectedSignal = 
+                        side == Order.Side.BUY ? io.heron.strategy.StrategySignal.SignalType.BUY 
+                                               : io.heron.strategy.StrategySignal.SignalType.SELL;
+                if (signal.type() != expectedSignal) {
+                    throw new IllegalArgumentException("Strategy decision: " + signal.type() + " - " + signal.reason());
+                }
+            }
 
             // 4. Risk check — throws RiskException on failure
             riskManagementService.validateOrder(userId, symbol, quantity, marketPrice);

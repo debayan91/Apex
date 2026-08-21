@@ -1,7 +1,7 @@
 package io.heron.portfolio;
 
-import io.heron.client.BrokerClient;
 import io.heron.controller.PortfolioController;
+import io.heron.market.MarketDataService;
 import io.heron.model.Holding;
 import io.heron.model.Order;
 import io.heron.model.User;
@@ -30,7 +30,7 @@ public class PortfolioService {
     private final HoldingRepository holdingRepository;
     private final UserRepository userRepository;
     private final WalletRepository walletRepository;
-    private final BrokerClient brokerClient;
+    private final MarketDataService marketDataService;
 
     /**
      * Update user holdings and balance after a trade.
@@ -120,7 +120,7 @@ public class PortfolioService {
         // Calculate total portfolio value
         BigDecimal holdingsValue = holdings.stream()
                 .map(h -> {
-                    BigDecimal currentPrice = brokerClient.getPrice(h.getSymbol());
+                    BigDecimal currentPrice = marketDataService.getLatestPrice(h.getSymbol());
                     return currentPrice.multiply(BigDecimal.valueOf(h.getQuantity()));
                 })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
