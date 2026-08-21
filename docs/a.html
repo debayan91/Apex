@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Heron Backend Architecture & Infrastructure Audit</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: white;
+      color: black;
+      margin: 8rem;
+      line-height: 1.6;
+    }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+    th, td { border: 1px solid black; padding: 8px; text-align: left; vertical-align: top; }
+    th { background-color: #f0f0f0; }
+  </style>
+</head>
+<body>
+
+<h1>1. Backend Tech Stack & Server Infrastructure</h1>
+<ul>
+  <li><strong>Languages & Runtimes:</strong>
+    <ul>
+      <li><strong>Java:</strong> Version 17 (OpenJDK 17 target/source bytecode).</li>
+      <li><strong>Python:</strong> Version 3.x (used for orchestration and automation scripts such as <code>start.py</code>).</li>
+      <li><strong>Node.js:</strong> Used for running k6/load-testing scripts (<code>load-test.js</code>).</li>
+    </ul>
+  </li>
+  <li><strong>Frameworks & Libraries:</strong>
+    <ul>
+      <li><strong>Core Server Framework:</strong> Spring Boot 3.2.2 (<code>org.springframework.boot:spring-boot-starter-parent</code>).</li>
+      <li><strong>Web & Networking:</strong> Spring Boot Starter Web (Embedded Tomcat, Spring MVC), Spring Boot Starter WebFlux (Reactor Netty client for non-blocking reactive WebSocket streaming).</li>
+      <li><strong>ORM & Persistence:</strong> Spring Boot Starter Data JPA, Hibernate 6.x, PostgreSQL JDBC Driver (<code>org.postgresql:postgresql</code>).</li>
+      <li><strong>Validation:</strong> Jakarta Bean Validation via <code>spring-boot-starter-validation</code> (Hibernate Validator).</li>
+      <li><strong>Code Generation:</strong> Project Lombok (<code>org.projectlombok:lombok</code>) for automated builder patterns, getters, setters, and logging injection.</li>
+      <li><strong>Testing Tools:</strong> Spring Boot Starter Test (JUnit 5, Mockito, AssertJ, Spring Test Context).</li>
+    </ul>
+  </li>
+  <li><strong>Databases & Caching:</strong>
+    <ul>
+      <li><strong>Primary Relational Database:</strong> PostgreSQL (port 5432, database name <code>heron_db</code>) configured with Hibernate DDL auto-update for persistent entities.</li>
+      <li><strong>In-Memory Caching:</strong> Redis (port 6379) via <code>spring-boot-starter-data-redis</code> (Lettuce client driver) utilizing <code>@RedisHash("LatestPrice")</code> for microsecond price lookups.</li>
+      <li><strong>Message Broker:</strong> Apache Kafka (port 9092) via <code>spring-kafka</code> for real-time market event streaming on the <code>market-ticks</code> topic with JSON serialization/deserialization.</li>
+      <li><strong>Vector Stores:</strong> None present in this architecture.</li>
+    </ul>
+  </li>
+  <li><strong>DevOps & External Integrations:</strong>
+    <ul>
+      <li><strong>Docker & Container Configurations:</strong> Multi-service <code>docker-compose.yml</code> provisioning isolated local containers for PostgreSQL, Redis, Apache Kafka, and Zookeeper.</li>
+      <li><strong>Build Tooling:</strong> Apache Maven 3.x with Maven Wrapper (<code>mvnw</code>) and Spring Boot Maven Plugin.</li>
+      <li><strong>External APIs & Feeds:</strong> Live public Binance WebSocket stream (<code>wss://stream.binance.com:9443/ws/btcusdt@trade</code>) feeding BTC/USDT transaction ticks directly into the messaging ingestion pipeline.</li>
+    </ul>
+  </li>
+</ul>
+
+<h1>2. Database Schemas & Data Models</h1>
+<p>The backend maintains a relational PostgreSQL schema alongside Redis key-value hash structures. Below is the comprehensive schema definition for all data models, primary/foreign keys, and constraints across the system.</p>
+
+<h2>Table: <code>users</code></h2>
+<p>Represents trading account identities and initial capital balances.</p>
+<table>
+  <tr><th>Field</th><th>Data Type</th><th>Nullable</th><th>Keys & Constraints</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>BIGINT</td><td>No</td><td>PRIMARY KEY, GenerationType.IDENTITY</td><td>Unique identifier for the user.</td></tr>
+  <tr><td><code>username</code></td><td>VARCHAR(255)</td><td>No</td><td>UNIQUE</td><td>Unique alphanumeric user account handle.</td></tr>
+  <tr><td><code>email</code></td><td>VARCHAR(255)</td><td>No</td><td>UNIQUE</td><td>User email address.</td></tr>
+  <tr><td><code>balance</code></td><td>DECIMAL(15,2)</td><td>No</td><td>None</td><td>Legacy cash balance representation.</td></tr>
+  <tr><td><code>created_at</code></td><td>TIMESTAMP</td><td>No</td><td>Updatable=false</td><td>Account creation timestamp (set on pre-persist).</td></tr>
+</table>
+
+<h2>Table: <code>wallets</code></h2>
+<p>Dedicated transactional fiat store for users, enforcing pessimistic concurrency locking for financial adjustments.</p>
+<table>
+  <tr><th>Field</th><th>Data Type</th><th>Nullable</th><th>Keys & Constraints</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>BIGINT</td><td>No</td><td>PRIMARY KEY, GenerationType.IDENTITY</td><td>Unique identifier for the wallet.</td></tr>
+  <tr><td><code>user_id</code></td><td>BIGINT</td><td>No</td><td>UNIQUE, Foreign Key to <code>users.id</code></td><td>The owning user ID (1-to-1 relationship).</td></tr>
+  <tr><td><code>balance</code></td><td>DECIMAL(19,4)</td><td>No</td><td>None</td><td>High-precision account balance.</td></tr>
+</table>
+
+<h2>Table: <code>orders</code></h2>
+<p>Stores order requests, status lifecycles, execution telemetry, and idempotency guarantees.</p>
+<table>
+  <tr><th>Field</th><th>Data Type</th><th>Nullable</th><th>Keys & Constraints</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>BIGINT</td><td>No</td><td>PRIMARY KEY, GenerationType.IDENTITY</td><td>Unique identifier for the order.</td></tr>
+  <tr><td><code>user_id</code></td><td>BIGINT</td><td>No</td><td>Foreign Key to <code>users.id</code></td><td>Owner who placed the order.</td></tr>
+  <tr><td><code>symbol</code></td><td>VARCHAR(255)</td><td>No</td><td>None</td><td>Ticker symbol (e.g., BTCUSDT).</td></tr>
+  <tr><td><code>quantity</code></td><td>INTEGER</td><td>No</td><td>Min(1)</td><td>Units of the asset requested.</td></tr>
+  <tr><td><code>price</code></td><td>DECIMAL(15,2)</td><td>Yes</td><td>None</td><td>Captured spot price at evaluation.</td></tr>
+  <tr><td><code>execution_price</code></td><td>DECIMAL(15,2)</td><td>Yes</td><td>None</td><td>Actual executed settlement price.</td></tr>
+  <tr><td><code>side</code></td><td>VARCHAR(32)</td><td>No</td><td>Enum: <code>BUY</code>, <code>SELL</code></td><td>Order execution direction.</td></tr>
+  <tr><td><code>status</code></td><td>VARCHAR(32)</td><td>No</td><td>Enum: <code>PENDING_VALIDATION</code>, <code>VALIDATED</code>, <code>FILLED</code>, <code>REJECTED</code>, <code>CANCELLED</code></td><td>Order state machine status.</td></tr>
+  <tr><td><code>rejection_reason</code></td><td>VARCHAR(255)</td><td>Yes</td><td>None</td><td>Risk violation or rejection message.</td></tr>
+  <tr><td><code>idempotency_key</code></td><td>VARCHAR(255)</td><td>Yes</td><td>UNIQUE</td><td>Client-provided UUID for deduplication.</td></tr>
+  <tr><td><code>created_at</code></td><td>TIMESTAMP</td><td>No</td><td>Updatable=false</td><td>Order draft timestamp.</td></tr>
+  <tr><td><code>executed_at</code></td><td>TIMESTAMP</td><td>Yes</td><td>None</td><td>Timestamp of validation.</td></tr>
+  <tr><td><code>filled_at</code></td><td>TIMESTAMP</td><td>Yes</td><td>None</td><td>Timestamp of settlement.</td></tr>
+</table>
+
+<h2>Table: <code>order_audit_logs</code></h2>
+<p>Append-only audit trail logging every discrete state transition evaluated by the <code>OrderStateMachine</code>.</p>
+<table>
+  <tr><th>Field</th><th>Data Type</th><th>Nullable</th><th>Keys & Constraints</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>BIGINT</td><td>No</td><td>PRIMARY KEY, GenerationType.IDENTITY</td><td>Unique audit record ID.</td></tr>
+  <tr><td><code>order_id</code></td><td>BIGINT</td><td>No</td><td>Foreign Key to <code>orders.id</code></td><td>Associated order ID.</td></tr>
+  <tr><td><code>old_status</code></td><td>VARCHAR(32)</td><td>Yes</td><td>Enum (OrderStatus)</td><td>Previous lifecycle state.</td></tr>
+  <tr><td><code>new_status</code></td><td>VARCHAR(32)</td><td>No</td><td>Enum (OrderStatus)</td><td>New lifecycle state transitioned into.</td></tr>
+  <tr><td><code>timestamp</code></td><td>TIMESTAMP</td><td>No</td><td>None</td><td>Timestamp when transition occurred.</td></tr>
+</table>
+
+<h2>Table: <code>holdings</code></h2>
+<p>Maintains aggregate position portfolios and weighted average entry prices per user and symbol.</p>
+<table>
+  <tr><th>Field</th><th>Data Type</th><th>Nullable</th><th>Keys & Constraints</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>BIGINT</td><td>No</td><td>PRIMARY KEY, GenerationType.IDENTITY</td><td>Unique holding record identifier.</td></tr>
+  <tr><td><code>user_id</code></td><td>BIGINT</td><td>No</td><td>Foreign Key to <code>users.id</code>, Composite UNIQUE (user_id, symbol)</td><td>Owner of the asset holding.</td></tr>
+  <tr><td><code>symbol</code></td><td>VARCHAR(255)</td><td>No</td><td>Composite UNIQUE (user_id, symbol)</td><td>Asset symbol.</td></tr>
+  <tr><td><code>quantity</code></td><td>INTEGER</td><td>No</td><td>None</td><td>Aggregated position volume held.</td></tr>
+  <tr><td><code>average_price</code></td><td>DECIMAL(15,2)</td><td>No</td><td>None</td><td>Volume-weighted average cost basis.</td></tr>
+</table>
+
+<h2>Table: <code>transaction_ledger</code></h2>
+<p>Immutable double-entry financial ledger recording all debit and credit movements on wallet balances.</p>
+<table>
+  <tr><th>Field</th><th>Data Type</th><th>Nullable</th><th>Keys & Constraints</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>BIGINT</td><td>No</td><td>PRIMARY KEY, GenerationType.IDENTITY</td><td>Unique ledger transaction sequence ID.</td></tr>
+  <tr><td><code>user_id</code></td><td>BIGINT</td><td>No</td><td>Foreign Key to <code>users.id</code></td><td>Target user account ID.</td></tr>
+  <tr><td><code>amount</code></td><td>DECIMAL(19,4)</td><td>No</td><td>None</td><td>Signed transaction value (positive/negative).</td></tr>
+  <tr><td><code>type</code></td><td>VARCHAR(32)</td><td>No</td><td>Enum: <code>DEPOSIT</code>, <code>WITHDRAWAL</code>, <code>TRADE_BUY</code>, <code>TRADE_SELL</code></td><td>Nature of ledger entry.</td></tr>
+  <tr><td><code>timestamp</code></td><td>TIMESTAMP</td><td>No</td><td>None</td><td>Ledger recording timestamp.</td></tr>
+</table>
+
+<h2>Table: <code>market_tick</code></h2>
+<p>Time-series persistence of raw market price events used for historical strategy backtesting.</p>
+<table>
+  <tr><th>Field</th><th>Data Type</th><th>Nullable</th><th>Keys & Constraints</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>BIGINT</td><td>No</td><td>PRIMARY KEY, GenerationType.IDENTITY</td><td>Unique tick event ID.</td></tr>
+  <tr><td><code>symbol</code></td><td>VARCHAR(255)</td><td>Yes</td><td>None</td><td>Asset market pair (e.g. BTCUSDT).</td></tr>
+  <tr><td><code>price</code></td><td>DECIMAL</td><td>Yes</td><td>None</td><td>Trade execution spot price.</td></tr>
+  <tr><td><code>timestamp</code></td><td>TIMESTAMP</td><td>Yes</td><td>None</td><td>Event timestamp emitted from exchange.</td></tr>
+</table>
+
+<h2>Redis Entity: <code>LatestPrice</code> (Hash: <code>LatestPrice</code>)</h2>
+<p>Low-latency cache object tracking current spot price and trading volume per symbol.</p>
+<table>
+  <tr><th>Key / Field</th><th>Data Type</th><th>Constraints</th><th>Description</th></tr>
+  <tr><td><code>symbol</code></td><td>String</td><td>@Id (Redis Key)</td><td>Asset symbol (e.g. BTCUSDT).</td></tr>
+  <tr><td><code>price</code></td><td>BigDecimal</td><td>None</td><td>Latest published exchange spot price.</td></tr>
+  <tr><td><code>volume</code></td><td>BigDecimal</td><td>None</td><td>Latest volume emitted.</td></tr>
+  <tr><td><code>updatedAt</code></td><td>LocalDateTime</td><td>None</td><td>UTC timestamp of the tick update.</td></tr>
+</table>
+
+<h1>3. Backend Features & API Inventory</h1>
+<ul>
+  <li><strong>API Endpoints & Handlers:</strong>
+    <ul>
+      <li><code>POST /api/orders</code>: Submits a new buy/sell order.
+        <ul>
+          <li><strong>Header:</strong> <code>Idempotency-Key</code> (Required, UUID).</li>
+          <li><strong>Payload:</strong> <code>{ "userId": Long, "symbol": String, "side": "BUY"|"SELL", "quantity": Integer, "strategyType": String }</code>.</li>
+          <li><strong>Logic:</strong> Performs idempotency verification, validates bean constraints, queries live Redis price, evaluates algorithmic strategy (if passed), invokes risk checks, transitions states via <code>OrderStateMachine</code>, executes atomic balance deductions with pessimistic locking, adjusts asset holdings, and records audit trails.</li>
+        </ul>
+      </li>
+      <li><code>GET /api/orders/history/{userId}</code>: Returns historical list of orders placed by a specific user.</li>
+      <li><code>GET /api/strategies</code>: Returns registered strategy names (e.g. <code>["Simple Moving Average (SMA)"]</code>).</li>
+      <li><code>POST /api/strategies/{name}/signal</code>: Analyzes historical ticks from <code>market_tick</code> to generate actionable buy/sell/hold trading signals with confidence scores.</li>
+      <li><code>POST /api/strategies/backtest</code>: Simulates algorithmic trading execution over a historical date-time range and calculates total return percentage, max drawdown, and trade count.</li>
+      <li><code>GET /portfolio/{userId}</code>: Calculates the complete portfolio summary including available cash, active symbol positions, average buy prices, and mark-to-market total portfolio valuation.</li>
+      <li><code>POST /user/create</code>: Registers a new user identity and provisions an associated wallet with initial capital.</li>
+      <li><code>GET /user/{id}</code>: Retrieves user account information.</li>
+      <li><code>POST /user/{id}/deposit</code>: Credits user balance via <code>WalletService</code> with pessimistic locking and writes an entry to <code>transaction_ledger</code>.</li>
+      <li><code>GET /user/{id}/wallet</code>: Retrieves user wallet cash balance.</li>
+      <li><code>GET /prices/latest?symbol={symbol}</code>: Fetches cached latest price from Redis (or returns all symbols if omitted).</li>
+    </ul>
+  </li>
+  <li><strong>Background Jobs & Pipelines:</strong>
+    <ul>
+      <li><strong>Binance WebSocket Streamer (<code>BinanceWebSocketClient</code>):</strong> Runs continuously via Reactor Netty on application startup (<code>ApplicationReadyEvent</code>), subscribing to <code>btcusdt@trade</code>. Includes exponential backoff reconnection logic (up to 10 retries, max 60s backoff) and publishes incoming trades to Kafka.</li>
+      <li><strong>Kafka Market Tick Consumer (<code>MarketTickKafkaConsumer</code>):</strong> Subscribes to the <code>market-ticks</code> Kafka topic and dispatches events to <code>MarketTickPersistenceHandler</code>.</li>
+      <li><strong>Market Tick Ingestion Pipeline (<code>MarketTickPersistenceHandler</code>):</strong> Asynchronously ingests ticks, calculates end-to-end pipeline latency, persists ticks to PostgreSQL (<code>market_tick</code>), and upserts the Redis <code>LatestPrice</code> cache.</li>
+      <li><strong>Cold-Start Seeding (<code>DataInitializer</code>):</strong> Implements <code>CommandLineRunner</code> to bootstrap default accounts (<code>pro_trader</code> with $1,000,000) and fallback prices for BTCUSDT and ETHUSDT if the datastore is empty.</li>
+    </ul>
+  </li>
+  <li><strong>Security & Middleware:</strong>
+    <ul>
+      <li><strong>Pessimistic Concurrency Locking:</strong> <code>WalletRepository.findWalletByUserId</code> acquires a <code>PESSIMISTIC_WRITE</code> row-level lock on database operations to avoid balance race conditions during concurrent order executions or deposits.</li>
+      <li><strong>Idempotent Operations:</strong> Unique constraint enforcement on <code>orders.idempotency_key</code> guarantees single-execution semantics.</li>
+      <li><strong>Risk Validation Engines:</strong> <code>RiskManagementService</code> enforces fat-finger caps ($1,000,000 max single order value) and prevents concurrent wash trades. <code>RiskGuard</code> validates post-trade minimum capital thresholds ($100.00) and caps maximum daily trades at 50 per user.</li>
+      <li><strong>State Machine Integrity:</strong> <code>OrderStateMachine</code> strictly forbids illegal status skips (only <code>PENDING_VALIDATION &rarr; VALIDATED &rarr; FILLED</code> or <code>REJECTED</code> are permitted).</li>
+      <li><strong>Global Exception Translation:</strong> <code>GlobalExceptionHandler</code> intercepts unhandled domain exceptions (e.g. <code>InsufficientBalanceException</code>, <code>RiskViolationException</code>, <code>MethodArgumentNotValidException</code>) and normalizes responses into standardized HTTP error objects.</li>
+    </ul>
+  </li>
+</ul>
+
+<h1>4. Server-Side Architecture & Request Lifecycle</h1>
+<p>The backend is built around a layered architecture featuring transactional boundaries, concurrency control, and asynchronous event streams:</p>
+<p><strong>1. HTTP Request Arrival:</strong> An incoming client request (e.g. <code>POST /api/orders</code>) hits the Spring DispatcherServlet and is routed to <code>OrderController</code>. Jakarta Bean Validation inspects DTO constraints (such as positive quantities, required symbols, valid Enums).</p>
+<p><strong>2. Service Orchestration & Idempotency:</strong> <code>OrderExecutionService</code> checks <code>OrderRepository.findByIdempotencyKey(...)</code>. If the key exists, it short-circuits and immediately returns the cached order. Otherwise, a new record is initialized in the database under <code>PENDING_VALIDATION</code>.</p>
+<p><strong>3. Market Price & Strategy Verification:</strong> The service queries <code>MarketDataService</code> to retrieve the live price from Redis. If a strategy name is supplied in the request, the strategy is looked up from Spring's injected bean map and executed against the tick. If the strategy signal disagrees with the requested trade direction (e.g. strategy signals HOLD while request is BUY), execution fails fast.</p>
+<p><strong>4. Risk Assessment:</strong> <code>RiskManagementService</code> evaluates if the trade exceeds the $1M fat-finger threshold or duplicates an existing active trade. Additionally, available wallet balance or holding share counts are validated before acquiring locks.</p>
+<p><strong>5. Order State Machine Transition to VALIDATED:</strong> <code>OrderStateMachine.transition(order, VALIDATED)</code> writes an audit trail to <code>order_audit_logs</code>.</p>
+<p><strong>6. Database Transaction & Pessimistic Lock Settlement:</strong> Under a <code>@Transactional</code> boundary, <code>WalletService.adjustBalance</code> requests a <code>PESSIMISTIC_WRITE</code> lock on the user's wallet row, adjusts the balance, and inserts an audit record into <code>transaction_ledger</code>. Holdings are subsequently updated (or inserted/deleted) via <code>HoldingRepository</code> with a recalculated volume-weighted average price.</p>
+<p><strong>7. Fulfillment & Final State:</strong> The order execution price and completion timestamp are saved, and the state machine transitions the order from <code>VALIDATED &rarr; FILLED</code>, committing the transaction and returning the final payload to the client.</p>
+
+<h1>5. Backend File-by-File Manifest</h1>
+<table>
+  <tr>
+    <th>File Path</th>
+    <th>Primary Responsibility</th>
+    <th>Key Exports / Methods</th>
+    <th>Dependencies</th>
+  </tr>
+  <tr>
+    <td><code>/HeronApplication.java</code></td>
+    <td>Application bootstrap and entry point. Enables Spring Boot auto-configuration and background scheduling.</td>
+    <td><code>main(String[] args)</code></td>
+    <td>Spring Boot, Application Context</td>
+  </tr>
+  <tr>
+    <td><code>/controller/OrderController.java</code></td>
+    <td>REST API endpoints for submitting and querying trade orders.</td>
+    <td><code>createOrder(...)</code>, <code>getOrderHistory(...)</code></td>
+    <td>OrderExecutionService, OrderRepository</td>
+  </tr>
+  <tr>
+    <td><code>/controller/StrategyController.java</code></td>
+    <td>REST API endpoints for querying strategies, generating trade signals, and running backtests.</td>
+    <td><code>listStrategies()</code>, <code>getSignal(...)</code>, <code>runBacktest(...)</code></td>
+    <td>StrategyRegistry, BacktestService, MarketTickRepository</td>
+  </tr>
+  <tr>
+    <td><code>/controller/PortfolioController.java</code></td>
+    <td>REST API for fetching users' current portfolio and asset holdings.</td>
+    <td><code>getPortfolio(...)</code></td>
+    <td>PortfolioService</td>
+  </tr>
+  <tr>
+    <td><code>/controller/UserController.java</code></td>
+    <td>REST API for creating users, depositing funds, and checking wallets.</td>
+    <td><code>createUser(...)</code>, <code>getUser(...)</code>, <code>deposit(...)</code>, <code>getWallet(...)</code></td>
+    <td>UserService, WalletService, WalletRepository</td>
+  </tr>
+  <tr>
+    <td><code>/controller/MarketDataController.java</code></td>
+    <td>REST API for fetching live market prices.</td>
+    <td><code>getLatestPrices(...)</code></td>
+    <td>LatestPriceRepository</td>
+  </tr>
+  <tr>
+    <td><code>/service/UserService.java</code></td>
+    <td>Business logic for provisioning users and their initial default wallets.</td>
+    <td><code>createUser(...)</code>, <code>findById(...)</code></td>
+    <td>UserRepository, WalletRepository</td>
+  </tr>
+  <tr>
+    <td><code>/service/OrderExecutionService.java</code></td>
+    <td>Core orchestration logic for trading. Handles idempotency, fetching quotes, risk checks, and fulfillment.</td>
+    <td><code>executeOrder(...)</code>, <code>updateBuyHolding(...)</code>, <code>updateSellHolding(...)</code></td>
+    <td>OrderStateMachine, RiskManagementService, WalletService, MarketDataService, HoldingRepository</td>
+  </tr>
+  <tr>
+    <td><code>/service/WalletService.java</code></td>
+    <td>Manages transactional fund transfers, balance adjustments, and ledger entries with pessimistic locking.</td>
+    <td><code>adjustBalance(...)</code>, <code>getWallet(...)</code></td>
+    <td>WalletRepository, TransactionLedgerRepository, UserRepository</td>
+  </tr>
+  <tr>
+    <td><code>/service/RiskManagementService.java</code></td>
+    <td>Evaluates orders against fat-finger constraints and checks for duplicate active orders.</td>
+    <td><code>validateOrder(...)</code></td>
+    <td>OrderRepository</td>
+  </tr>
+  <tr>
+    <td><code>/service/BacktestService.java</code></td>
+    <td>Simulates historical trading execution for a given strategy and timeline to calculate ROI and Drawdowns.</td>
+    <td><code>runBacktest(...)</code></td>
+    <td>MarketTickRepository, StrategyRegistry</td>
+  </tr>
+  <tr>
+    <td><code>/portfolio/PortfolioService.java</code></td>
+    <td>Calculates net worth, handles addition/removal of asset holdings upon trade settlement.</td>
+    <td><code>updatePortfolio(...)</code>, <code>getPortfolioSummary(...)</code></td>
+    <td>HoldingRepository, UserRepository, WalletRepository, MarketDataService</td>
+  </tr>
+  <tr>
+    <td><code>/risk/RiskGuard.java</code></td>
+    <td>Enforces daily trading limits and minimum balance threshold risk rules.</td>
+    <td><code>validateTrade(...)</code></td>
+    <td>OrderRepository</td>
+  </tr>
+  <tr>
+    <td><code>/execution/OrderStateMachine.java</code></td>
+    <td>Strict lifecycle manager for orders. Ensures deterministic state changes and triggers audit logs.</td>
+    <td><code>transition(...)</code></td>
+    <td>OrderAuditLogRepository</td>
+  </tr>
+  <tr>
+    <td><code>/strategy/TradingStrategy.java</code></td>
+    <td>Interface defining how trading strategies analyze market data to generate signals.</td>
+    <td><code>analyze(...)</code>, <code>getStrategyName()</code></td>
+    <td>MarketTick, StrategySignal</td>
+  </tr>
+  <tr>
+    <td><code>/strategy/StrategyRegistry.java</code></td>
+    <td>Central memory registry mapping strategy names to their Spring Bean implementations.</td>
+    <td><code>getAllStrategyNames()</code>, <code>getStrategy(...)</code></td>
+    <td>TradingStrategy implementations</td>
+  </tr>
+  <tr>
+    <td><code>/strategy/StrategySignal.java</code></td>
+    <td>Data record representing a trade signal output (BUY/SELL/HOLD) and confidence score.</td>
+    <td><code>SignalType</code> Enum</td>
+    <td>None</td>
+  </tr>
+  <tr>
+    <td><code>/strategy/impl/SimpleMovingAverageStrategy.java</code></td>
+    <td>Concrete strategy calculating a 20-period Simple Moving Average to generate trend signals.</td>
+    <td><code>analyze(...)</code>, <code>getStrategyName()</code></td>
+    <td>TradingStrategy</td>
+  </tr>
+  <tr>
+    <td><code>/market/BinanceWebSocketClient.java</code></td>
+    <td>Reactor Netty client linking to Binance for live trade streaming. Features auto-reconnect backoff.</td>
+    <td><code>onApplicationEvent(...)</code>, <code>startStreaming()</code></td>
+    <td>KafkaTemplate, Reactor Netty</td>
+  </tr>
+  <tr>
+    <td><code>/market/MarketTickKafkaConsumer.java</code></td>
+    <td>Kafka consumer listener pulling serialized market trade events off the messaging queue.</td>
+    <td><code>consume(...)</code></td>
+    <td>MarketTickPersistenceHandler</td>
+  </tr>
+  <tr>
+    <td><code>/market/MarketTickPersistenceHandler.java</code></td>
+    <td>Transforms raw WebSocket payloads into database entities and upserts Redis caches.</td>
+    <td><code>persist(...)</code></td>
+    <td>MarketTickRepository, LatestPriceRepository</td>
+  </tr>
+  <tr>
+    <td><code>/market/MarketDataService.java</code></td>
+    <td>Query layer abstracting Redis lookups for real-time asset pricing.</td>
+    <td><code>getLatestPrice(...)</code></td>
+    <td>LatestPriceRepository</td>
+  </tr>
+  <tr>
+    <td><code>/config/DataInitializer.java</code></td>
+    <td>Bootstraps the database with a default wealthy user profile and dummy pricing for system cold-start.</td>
+    <td><code>run(...)</code></td>
+    <td>UserRepository, WalletRepository, LatestPriceRepository</td>
+  </tr>
+  <tr>
+    <td><code>/config/GlobalExceptionHandler.java</code></td>
+    <td>Catches unhandled runtime exceptions, domain violations, and binds standard HTTP JSON error mappings.</td>
+    <td><code>handleInsufficientBalance(...)</code>, <code>handleValidationErrors(...)</code></td>
+    <td>Spring Web MVC @ControllerAdvice</td>
+  </tr>
+  <tr>
+    <td><code>/model/User.java</code></td>
+    <td>Entity representing a trader identity.</td>
+    <td>Class properties (id, username, email, balance)</td>
+    <td>JPA Annotations</td>
+  </tr>
+  <tr>
+    <td><code>/model/Wallet.java</code></td>
+    <td>Entity representing a user's fiat cash store.</td>
+    <td>Class properties (userId, balance)</td>
+    <td>JPA Annotations</td>
+  </tr>
+  <tr>
+    <td><code>/model/Order.java</code></td>
+    <td>Entity representing a trade request and its historic state.</td>
+    <td>Class properties, <code>Side</code> Enum, <code>OrderStatus</code> Enum</td>
+    <td>JPA Annotations</td>
+  </tr>
+  <tr>
+    <td><code>/model/OrderAuditLog.java</code></td>
+    <td>Entity tracking historic state-machine modifications to orders.</td>
+    <td>Class properties (oldStatus, newStatus, orderId)</td>
+    <td>JPA Annotations</td>
+  </tr>
+  <tr>
+    <td><code>/model/Holding.java</code></td>
+    <td>Entity tracking a user's ownership quantity of a specific crypto asset.</td>
+    <td>Class properties (symbol, quantity, averagePrice)</td>
+    <td>JPA Annotations</td>
+  </tr>
+  <tr>
+    <td><code>/model/TransactionLedger.java</code></td>
+    <td>Entity logging atomic deposit/withdrawal and trading debits/credits.</td>
+    <td>Class properties (amount, type)</td>
+    <td>JPA Annotations</td>
+  </tr>
+  <tr>
+    <td><code>/model/TransactionType.java</code></td>
+    <td>Enum identifying the classification of ledger monetary movements.</td>
+    <td>Enum values (DEPOSIT, WITHDRAWAL, TRADE_BUY, TRADE_SELL)</td>
+    <td>None</td>
+  </tr>
+  <tr>
+    <td><code>/market/MarketTick.java</code></td>
+    <td>Entity tracking historical price points over time for backtesting.</td>
+    <td>Class properties (symbol, price, timestamp)</td>
+    <td>JPA Annotations</td>
+  </tr>
+  <tr>
+    <td><code>/market/LatestPrice.java</code></td>
+    <td>Redis Hash object storing the absolutely newest price data.</td>
+    <td>Class properties (symbol, price, volume)</td>
+    <td>Spring Data Redis @RedisHash</td>
+  </tr>
+  <tr>
+    <td><code>/market/BinanceTradeEvent.java</code></td>
+    <td>Jackson DTO for mapping streaming JSON arrays from the Binance WebSockets.</td>
+    <td>Class properties mapped with @JsonProperty</td>
+    <td>Jackson annotations</td>
+  </tr>
+  <tr>
+    <td><code>/repo/UserRepository.java</code></td>
+    <td>Data access layer for User entities.</td>
+    <td>Extends JpaRepository</td>
+    <td>Spring Data JPA</td>
+  </tr>
+  <tr>
+    <td><code>/repo/WalletRepository.java</code></td>
+    <td>Data access layer for Wallet entities, specifying Pessimistic Locking logic.</td>
+    <td><code>findWalletByUserId(...)</code></td>
+    <td>Spring Data JPA, @Lock</td>
+  </tr>
+  <tr>
+    <td><code>/repo/OrderRepository.java</code></td>
+    <td>Data access layer for Order entities, tracking idempotency keys and active counts.</td>
+    <td><code>findByIdempotencyKey(...)</code>, <code>countByUserIdAndSymbolAndStatus(...)</code></td>
+    <td>Spring Data JPA</td>
+  </tr>
+  <tr>
+    <td><code>/repo/HoldingRepository.java</code></td>
+    <td>Data access layer for retrieving user asset positions.</td>
+    <td><code>findByUserIdAndSymbol(...)</code></td>
+    <td>Spring Data JPA</td>
+  </tr>
+  <tr>
+    <td><code>/repo/OrderAuditLogRepository.java</code></td>
+    <td>Data access layer for saving order state transitions.</td>
+    <td>Extends JpaRepository</td>
+    <td>Spring Data JPA</td>
+  </tr>
+  <tr>
+    <td><code>/repo/TransactionLedgerRepository.java</code></td>
+    <td>Data access layer for persisting permanent ledger fund transfers.</td>
+    <td>Extends JpaRepository</td>
+    <td>Spring Data JPA</td>
+  </tr>
+  <tr>
+    <td><code>/market/LatestPriceRepository.java</code></td>
+    <td>Redis key-value access layer for live asset pricing.</td>
+    <td>Extends CrudRepository</td>
+    <td>Spring Data Redis</td>
+  </tr>
+  <tr>
+    <td><code>/market/MarketTickRepository.java</code></td>
+    <td>SQL access layer for reading long-term historical price series data for backtests.</td>
+    <td><code>findByTimestampBetweenOrderByTimestampAsc(...)</code></td>
+    <td>Spring Data JPA</td>
+  </tr>
+  <tr>
+    <td><code>backend/pom.xml</code></td>
+    <td>Maven build file defining dependencies, compiler properties, and Spring Boot plugins.</td>
+    <td>N/A</td>
+    <td>Maven</td>
+  </tr>
+  <tr>
+    <td><code>application.properties</code></td>
+    <td>Core application configurations (Ports, Postgres URL, Redis config, Kafka bootstrap, Binance flag).</td>
+    <td>N/A</td>
+    <td>Spring Boot Configuration</td>
+  </tr>
+  <tr>
+    <td><code>docker-compose.yml</code></td>
+    <td>Multi-container Docker orchestration for PostgreSQL, Redis, Kafka, and Zookeeper.</td>
+    <td>Services configuration</td>
+    <td>Docker Compose</td>
+  </tr>
+  <tr>
+    <td><code>start.py</code></td>
+    <td>Convenience orchestration script to boot and manage backend service processes.</td>
+    <td>Process management execution</td>
+    <td>Python standard library (subprocess, os, sys)</td>
+  </tr>
+</table>
+
+</body>
+</html>
