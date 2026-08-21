@@ -50,13 +50,4 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("User not found: " + userId));
     }
 
-    /**
-     * Update user balance.
-     */
-    @Transactional
-    public User updateBalance(Long userId, BigDecimal newBalance) {
-        User user = findById(userId);
-        user.setBalance(newBalance);
-        return userRepository.save(user);
-    }
 }

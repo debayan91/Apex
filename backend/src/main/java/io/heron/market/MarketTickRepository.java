@@ -9,7 +9,7 @@ import java.util.Optional;
 
 @Repository
 public interface MarketTickRepository extends JpaRepository<MarketTick, Long> {
-    Optional<MarketTick> findTopBySymbolOrderByTimestampDesc(String symbol);
+
 
     List<MarketTick> findByTimestampBetweenOrderByTimestampAsc(LocalDateTime start, LocalDateTime end);
 }

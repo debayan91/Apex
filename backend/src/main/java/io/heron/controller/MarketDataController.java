@@ -8,8 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
+import org.springframework.web.bind.annotation.RequestParam;
 @RestController
 @RequestMapping("/prices")
 @RequiredArgsConstructor
@@ -18,7 +17,7 @@ public class MarketDataController {
     private final LatestPriceRepository latestPriceRepository;
 
     @GetMapping("/latest")
-    public ResponseEntity<?> getLatestPrices(@org.springframework.web.bind.annotation.RequestParam(required = false) String symbol) {
+    public ResponseEntity<?> getLatestPrices(@RequestParam(required = false) String symbol) {
         if (symbol != null && !symbol.isBlank()) {
             return latestPriceRepository.findById(symbol)
                     .map(ResponseEntity::ok)

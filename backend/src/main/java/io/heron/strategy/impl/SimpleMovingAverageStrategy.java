@@ -5,8 +5,6 @@ import io.heron.strategy.StrategySignal;
 import io.heron.strategy.TradingStrategy;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.List;
 
 @Component("SMA")

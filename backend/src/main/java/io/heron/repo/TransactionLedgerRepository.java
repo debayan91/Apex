@@ -8,5 +8,5 @@ import java.util.List;
 
 @Repository
 public interface TransactionLedgerRepository extends JpaRepository<TransactionLedger, Long> {
-    List<TransactionLedger> findByUserId(Long userId);
+
 }

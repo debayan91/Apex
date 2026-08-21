@@ -1,6 +1,5 @@
 package io.heron.market;
 
-import io.heron.market.LatestPrice;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

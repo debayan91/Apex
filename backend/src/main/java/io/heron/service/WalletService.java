@@ -10,7 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import io.heron.exception.InsufficientBalanceException;
 import java.math.BigDecimal;
 
 @Service
@@ -34,7 +34,7 @@ public class WalletService {
         if (amount.compareTo(BigDecimal.ZERO) < 0) {
             BigDecimal newBalance = wallet.getBalance().add(amount);
             if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
-                throw new io.heron.exception.InsufficientBalanceException("Insufficient funds for user: " + userId + ". Available: $" + wallet.getBalance() + ", Required: $" + amount.abs());
+                throw new InsufficientBalanceException("Insufficient funds for user: " + userId + ". Available: $" + wallet.getBalance() + ", Required: $" + amount.abs());
             }
         }
 
