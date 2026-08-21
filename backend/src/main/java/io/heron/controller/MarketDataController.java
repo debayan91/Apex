@@ -24,7 +24,7 @@ public class MarketDataController {
                     .map(ResponseEntity::ok)
                     .orElse(ResponseEntity.notFound().build());
         }
-        List<LatestPrice> latestPrices = latestPriceRepository.findAll();
+        Iterable<LatestPrice> latestPrices = latestPriceRepository.findAll();
         return ResponseEntity.ok(latestPrices);
     }
 }

@@ -38,7 +38,11 @@ public class MarketTickPersistenceHandler {
             marketTickRepository.save(tick);
 
             // Upsert latest price
-            latestPriceRepository.upsertPrice(event.getSymbol(), event.getPrice(), null);
+            latestPriceRepository.save(LatestPrice.builder()
+                    .symbol(event.getSymbol())
+                    .price(event.getPrice())
+                    .updatedAt(timestamp)
+                    .build());
 
             long latency = System.currentTimeMillis() - event.getEventTime();
             log.info("PIPELINE_LATENCY_MS: {}", latency);
